@@ -14,6 +14,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain.tools import tool
 from langchain.agents import create_agent
+from langchain.agents.middleware import dynamic_prompt, ModelRequest
 
 
 # loading environment variables
@@ -59,39 +60,29 @@ else:
 
 # Rag Agent Implementation
 
-@tool(response_format="content_and_artifact")
-def retrieve_context(query: str) -> Tuple[str, List[Document]]:
+@dynamic_prompt
+def prompt_with_context(request: ModelRequest) -> str:
     """
-    Retrieve info to feed to llm to answer query
-
-    args:
-        query:
-            type: str
-            the query being prompted to the llm
-
-    returns:
-
+    inject context into state messages
     """
-    retrieved_documents: List[Document] = vector_store.similarity_search(query, k=2) # k=2 means returns at most 2 chunks
-    serialized: str = "\n\n".join(
-        (f"Source: {doc.metadata}\nContent: {doc.page_content}") for doc in retrieved_documents
+    last_query: str = request.state["messages"][-1].text
+    retrieved_documents: List[Document] = vector_store.similarity_search(last_query)
+
+    docs_content: str = "\n\n".join(doc.page_content for doc in retrieved_documents)
+
+    system_message = (
+        "You are a helpful assistant. Use the following context in your response:"
+        f"\n\n{docs_content}"
     )
+    return system_message
 
-    return serialized, retrieved_documents
-
-
-tools = [retrieve_context]
-prompt = (
-    "You have access to a tool that retrieves context from a blog post."
-    "Use the tool to help answer user queries."
-)
+tools: list = []
 
 # creating agent
-agent: Any = create_agent(model=claude, tools=tools, system_prompt=prompt)
+agent: Any = create_agent(model=claude, tools=tools, middleware=[prompt_with_context])
 
 query = (
-    "What is Porsche's outlook for the future?\n\n"
-    "Also, what are they saying about the Porsche 911"
+    "what are they saying about the Porsche 911"
 )
 
 for event in agent.stream(
