@@ -21,9 +21,10 @@ load_dotenv()
 ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
 LANGSMITH_API_KEY: str | None = os.getenv("LANGSMITH_API_KEY")
 LANGSMITH_TRACING: str | None = os.getenv("LANGSMITH_TRACING")
+PERSIST_DIRECTORY: str = "./chroma_langchain_db"
+FILE_PATH: str = "./data/porsche_2024_annual_report_english.pdf"
 
 # turn pdf into a list of document objects
-FILE_PATH: str = "./data/porsche_2024_annual_report_english.pdf"
 loader: PyPDFLoader = PyPDFLoader(file_path=FILE_PATH)
 docs: List[Document] = loader.load()
 
@@ -38,17 +39,23 @@ vector_store: Chroma = Chroma(
     persist_directory="./chroma_langchain_db"
 )
 
-# initializing text splitter and creating list of chunks with type Document
-# (each document obj is now a much smaller chunk)
-text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,
-    chunk_overlap=200,
-    add_start_index=True
-)
-all_splits: List[Document] = text_splitter.split_documents(docs)
 
-# embedding and storing documents
-document_ids: List[str] = vector_store.add_documents(documents=all_splits)
+if os.path.exists(PERSIST_DIRECTORY) and os.listdir(PERSIST_DIRECTORY):
+    print("loading existing vector store")
+    print(f"Loaded {vector_store._collection.count()} documents from existing store")
+else:
+    print("creating new vector store. this will take a bit of time. go grab a snack")
+    # initializing text splitter and creating list of chunks with type Document
+    # (each document obj is now a much smaller chunk)
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        add_start_index=True
+    )
+    all_splits: List[Document] = text_splitter.split_documents(docs)
+
+    # embedding and storing documents
+    document_ids: List[str] = vector_store.add_documents(documents=all_splits)
 
 # Rag Agent Implementation
 
@@ -84,6 +91,7 @@ agent: Any = create_agent(model=claude, tools=tools, system_prompt=prompt)
 
 query = (
     "What is Porsche's outlook for the future?\n\n"
+    "Also, what are they saying about the Porsche 911"
 )
 
 for event in agent.stream(
